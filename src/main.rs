@@ -1,5 +1,9 @@
 use sysinfo::Disks;
-use std::{io::Error, fs, path::Path, thread::sleep, time::Duration};
+use std::{fs::{self, File}, io::{BufReader, Error}, path::Path, thread::sleep, time::Duration};
+use xml::{
+    reader::{EventReader, XmlEvent},
+    name::OwnedName,
+};
 
 fn main() -> Result<(), Error> {
     let path = loop {
@@ -14,12 +18,39 @@ fn main() -> Result<(), Error> {
 
     let path = path.join("Digital Editions").join("Annotations");
     
-    if path.is_dir() {
-        let files = find_annotation_files(&path);
-        dbg!(files);
-    } else {
-        println!("Unable to access annotations dir: {:?}", path);
+    if !path.is_dir() {
+        panic!("Unable to access Kobo annotations directory!")
     }
+    let files = find_annotation_files(&path);
+
+    for filename in files {
+        if let Ok(file) = File::open(&filename) {
+            let file = BufReader::new(file);
+            let parser = EventReader::new(file);
+            let mut current_tag = String::from("");
+            for e in parser {
+                match e {
+                    Ok(XmlEvent::StartElement { name: OwnedName { local_name: tagname, .. }, .. }) => {
+                        current_tag = tagname;
+                    }
+                    Ok(XmlEvent::Characters(content)) => {
+                        if current_tag == "text" {
+                            println!("{:?}", content);
+                        } else if current_tag == "title" {
+                            println!("\n=== {} ===\n", content);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+    }
+
     Ok(())
 }
 
